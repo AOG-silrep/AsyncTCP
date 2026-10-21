@@ -292,6 +292,7 @@ protected:
   void *_poll_cb_arg;
 
   bool _ack_pcb;
+  bool *_recv_deleted = nullptr;  // points at _recv()'s flag while it runs callbacks; the destructor sets it
   uint32_t _tx_last_packet;
   uint32_t _rx_ack_len;
   uint32_t _rx_last_packet;

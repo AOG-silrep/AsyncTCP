@@ -784,6 +784,9 @@ AsyncClient::AsyncClient(tcp_pcb *pcb)
 }
 
 AsyncClient::~AsyncClient() {
+  if (_recv_deleted) {
+    *_recv_deleted = true;
+  }
   if (_pcb) {
     _close();
   }
@@ -1079,6 +1082,10 @@ int8_t AsyncClient::_sent(tcp_pcb *pcb, uint16_t len) {
 }
 
 int8_t AsyncClient::_recv(tcp_pcb *pcb, pbuf *pb, int8_t err) {
+  // A callback may close and delete this client (ESPAsyncWebServer does when it answers a
+  // WebSocket close), so once the destructor has set deleted, no member may be touched
+  bool deleted = false;
+  _recv_deleted = &deleted;
   while (pb != NULL) {
     _rx_last_packet = millis();
     // we should not ack before we assimilate the data
@@ -1092,14 +1099,24 @@ int8_t AsyncClient::_recv(tcp_pcb *pcb, pbuf *pb, int8_t err) {
       if (_recv_cb) {
         async_tcp_log_elapsed("onData", _recv_cb(_recv_cb_arg, this, b->payload, b->len));
       }
-      if (!_ack_pcb) {
+      if (deleted) {
+        // nothing to ack, the pcb went with the client
+      } else if (!_ack_pcb) {
         _rx_ack_len += b->len;
       } else if (_pcb) {
         _tcp_recved(&_pcb, b->len);
       }
       pbuf_free(b);
     }
+    if (deleted) {
+      async_tcp_log_d("client deleted by a receive callback");
+      if (pb) {
+        pbuf_free(pb);
+      }
+      return ERR_OK;
+    }
   }
+  _recv_deleted = nullptr;
   return ERR_OK;
 }
 
